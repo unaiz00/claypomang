@@ -1,0 +1,6 @@
+{
+  "name": "Clay & Craft Pottery Studio",
+  "description": "A premium Google Sheets-powered pottery studio website for a pottery business based in Mangalore, allowing visitors to view and book pottery workshops in real time.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
