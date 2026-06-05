@@ -1,0 +1,61 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-brand-clay: #C96B3C;      /* Primary: Terracotta / warm orange clay */
+  --color-brand-terracotta: #C96B3C; /* Primary: Terracotta / warm orange clay */
+  --color-brand-terracotta-hover: #A3532A; /* Darker terracotta for tactile button hovers */
+  --color-brand-sand: #F4EFE6;       /* Warm sand contrast background */
+  --color-brand-ochre: #8C5A44;      /* Accent: Warm brown / auxiliary clay */
+  --color-brand-earth: #2B2B2B;      /* Text: Deep charcoal */
+  --color-brand-parchment: #FAF7F2;  /* Background: Warm clay-studio off-white/beige */
+  --color-brand-bento-border: #E8E2D5; /* Bento card subtle border */
+  --color-brand-bento-card: #ffffff;   /* Bento glowing white cards */
+  --color-brand-meta: #6E564C;       /* Elegant muted brown for accessible body subtext */
+  
+  --font-serif: "Playfair Display", Georgia, serif;
+  --font-sans: "Inter", "Helvetica Neue", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+  
+  --animate-fade-in: fade-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  --animate-slide-up: slide-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  --animate-slide-left: slide-left 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  --animate-scale-up: scale-up 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  --animate-spin-hover: spin 3s linear infinite;
+
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes slide-up {
+    from { transform: translateY(20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+  @keyframes slide-left {
+    from { transform: translateX(50px); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+  @keyframes scale-up {
+    from { transform: scale(0.92); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+  }
+}
+
+/* Base custom definitions */
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-brand-parchment);
+  color: var(--color-brand-earth);
+}
+
+/* Custom interactive adjustments */
+.animate-spin-hover {
+  transition: transform 0.4s ease;
+}
+.animate-spin-hover:hover {
+  transform: rotate(180deg);
+}
