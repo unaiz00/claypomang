@@ -74,7 +74,24 @@ export function normalizeSheetUrl(url: string): string {
     return cleanUrl;
   }
   
-  // Extract spreadsheet ID (e.g. /spreadsheets/d/1A2B3C4D5E/...)
+  // Extract "Publish to Web" URL token: /spreadsheets/d/e/2PACX-1v.../pubhtml
+  if (cleanUrl.toLowerCase().includes('/spreadsheets/d/e/')) {
+    const pubMatch = cleanUrl.match(/\/spreadsheets\/d\/e\/([a-zA-Z0-9-_]+)/);
+    if (pubMatch && pubMatch[1]) {
+      const publishToken = pubMatch[1];
+      
+      // Check for a gid parameter inside the "Publish to Web" URL
+      let gid = '';
+      const gidMatch = cleanUrl.match(/[#?&]gid=([0-9]+)/);
+      if (gidMatch && gidMatch[1]) {
+        gid = gidMatch[1];
+      }
+      
+      return `https://docs.google.com/spreadsheets/d/e/${publishToken}/pub?output=csv${gid ? `&gid=${gid}` : ''}`;
+    }
+  }
+
+  // Extract regular spreadsheet ID (e.g. /spreadsheets/d/1A2B3C4D5E/...)
   const idMatch = cleanUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
   if (idMatch && idMatch[1]) {
     const spreadsheetId = idMatch[1];
@@ -111,6 +128,14 @@ export function getStudioSettings(): StudioSettings {
   const metaEnv = (import.meta as any).env || {};
   const envSheetUrl = normalizeSheetUrl((metaEnv.VITE_SHEET_CSV_URL as string) || '');
   const envAppsScriptUrl = (metaEnv.VITE_APPS_SCRIPT_URL as string) || '';
+
+  // Single active diagnostic log to help verify build configuration on platforms like Vercel
+  console.log('%c[Clay & Pottery Diagnostics]', 'color: #c97d60; font-weight: bold; font-size: 11px;', {
+    VITE_SHEET_CSV_URL_PRESENT: !!metaEnv.VITE_SHEET_CSV_URL,
+    VITE_SHEET_CSV_URL_VALUE: metaEnv.VITE_SHEET_CSV_URL || '(not set)',
+    VITE_APPS_SCRIPT_URL_PRESENT: !!metaEnv.VITE_APPS_SCRIPT_URL,
+    VITE_APPS_SCRIPT_URL_VALUE: metaEnv.VITE_APPS_SCRIPT_URL || '(not set)'
+  });
 
   return {
     sheetCsvUrl: envSheetUrl,
