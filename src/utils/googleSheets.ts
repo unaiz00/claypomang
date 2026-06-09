@@ -61,6 +61,61 @@ export const MANUAL_IMAGE_OVERRIDES: Record<string, string> = {
   'Unaiz Building Potter': 'card_image.png', // Edit this string to change Unaiz Building Potter image!
 };
 
+export function normalizeImageUrl(url: string): string {
+  if (!url) return '';
+  const clean = url.trim();
+  
+  // Convert Google Drive share links to high-speed direct render links
+  if (clean.includes('drive.google.com')) {
+    // Matches /file/d/(ID)/...
+    const dMatch = clean.match(/\/file\/d\/([a-zA-Z0-9-_]+)/);
+    if (dMatch && dMatch[1]) {
+      return `https://lh3.googleusercontent.com/d/${dMatch[1]}`;
+    }
+    // Matches ?id=(ID)
+    const idMatch = clean.match(/[?&]id=([a-zA-Z0-9-_]+)/);
+    if (idMatch && idMatch[1]) {
+      return `https://lh3.googleusercontent.com/d/${idMatch[1]}`;
+    }
+  }
+  return clean;
+}
+
+export function normalizeDate(dateStr: string | null | undefined): string {
+  if (!dateStr) return '';
+  const clean = dateStr.toString().trim();
+  
+  // Match standard ISO or SQL date format prefix like "YYYY-MM-DD"
+  if (clean.includes('T')) {
+    const parted = clean.split('T')[0];
+    if (/^\d{4}-\d{2}-\d{2}$/.test(parted)) {
+      return parted;
+    }
+  }
+  
+  if (clean.includes(' ')) {
+    const parted = clean.split(' ')[0];
+    if (/^\d{4}-\d{2}-\d{2}$/.test(parted)) {
+      return parted;
+    }
+  }
+
+  // Parse standard Date formats (handles different locale string options perfectly)
+  try {
+    const parsedDate = new Date(clean);
+    if (!isNaN(parsedDate.getTime())) {
+      const yyyy = parsedDate.getFullYear();
+      const mm = String(parsedDate.getMonth() + 1).padStart(2, '0');
+      const dd = String(parsedDate.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    }
+  } catch (e) {
+    // Return original if parsing failed
+  }
+
+  return clean;
+}
+
 const LOCAL_STORAGE_KEY = 'clay_craft_studio_settings';
 
 /**
@@ -221,14 +276,24 @@ function findColumnIndex(headers: string[], options: string[]): number {
   return -1;
 }
 
-// Fetch bookings from Google Apps Script endpoint exclusively (Google Sheets is single source of truth)
+// Fetch bookings from Google Apps Script endpoint and merge with local bookings
 export async function fetchBookings(settings: StudioSettings = getStudioSettings()): Promise<Booking[]> {
-  // If NO apps script URL is set, return empty array (do not fallback to localStorage)
-  if (!settings.appsScriptUrl) {
-    return [];
+  let localBookings: Booking[] = [];
+  try {
+    const data = localStorage.getItem('clay_craft_local_bookings');
+    if (data) {
+      localBookings = JSON.parse(data);
+    }
+  } catch (e) {
+    console.warn('Failed to parse local bookings', e);
   }
 
-  // If Apps Script URL is set, fetch from the GET endpoint
+  // If NO apps script URL is set, return local mock bookings
+  if (!settings.appsScriptUrl) {
+    return localBookings;
+  }
+
+  // If Apps Script URL is set, fetch from the GET endpoint and merge or fallback
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout for cold starts
@@ -244,12 +309,20 @@ export async function fetchBookings(settings: StudioSettings = getStudioSettings
     }
     const data = await response.json();
     if (Array.isArray(data)) {
-      return data;
+      // Merge GAS bookings and local-only bookings (deduplicating by ID)
+      const mergedBookings = [...data];
+      const remoteIds = new Set(data.map((b: Booking) => b.id));
+      for (const localB of localBookings) {
+        if (!remoteIds.has(localB.id)) {
+          mergedBookings.push(localB);
+        }
+      }
+      return mergedBookings;
     }
-    return [];
+    return localBookings;
   } catch (error) {
-    console.warn('Failed to fetch bookings from Apps Script. Google Sheets is the single source of truth, so returning empty array.', error);
-    return [];
+    console.warn('Failed to fetch bookings from Apps Script. Returning local bookings.', error);
+    return localBookings;
   }
 }
 
@@ -265,7 +338,13 @@ export async function fetchWorkshops(settings: StudioSettings = getStudioSetting
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout for cold starts
       
-      const sheetUrl = normalizeSheetUrl(settings.sheetCsvUrl);
+      let sheetUrl = normalizeSheetUrl(settings.sheetCsvUrl);
+      if (sheetUrl.includes('?')) {
+        sheetUrl += `&cb=${Date.now()}`;
+      } else {
+        sheetUrl += `?cb=${Date.now()}`;
+      }
+      
       const response = await fetch(sheetUrl, {
         signal: controller.signal,
         cache: 'no-store'
@@ -287,14 +366,17 @@ export async function fetchWorkshops(settings: StudioSettings = getStudioSetting
       const headers = rows[0];
       
       // Find column positions
-      const titleIdx = findColumnIndex(headers, ['title', 'workshop', 'name']);
+      const idIdx = findColumnIndex(headers, ['workshopid', 'id']);
+      const titleIdx = findColumnIndex(headers, ['workshoptitle', 'title', 'workshop', 'name']);
       const descIdx = findColumnIndex(headers, ['description', 'info', 'details']);
-      const dateIdx = findColumnIndex(headers, ['date', 'day']);
-      const morningIdx = findColumnIndex(headers, ['morning', 'slot1', 'am']);
-      const afternoonIdx = findColumnIndex(headers, ['afternoon', 'slot2', 'pm']);
+      const dateIdx = findColumnIndex(headers, ['workshopdate', 'date', 'day']);
+      const morningIdx = findColumnIndex(headers, ['morningslot', 'morning', 'slot1', 'am']);
+      const afternoonIdx = findColumnIndex(headers, ['afternoonslot', 'afternoon', 'slot2', 'pm']);
       const maxSeatsIdx = findColumnIndex(headers, ['maximum', 'maxseats', 'capacity', 'seats']);
+      const morningMaxSeatsIdx = findColumnIndex(headers, ['morningcapacity', 'morningmaxseats', 'morningseats', 'amcapacity', 'amslots', 'amseats']);
+      const afternoonMaxSeatsIdx = findColumnIndex(headers, ['afternooncapacity', 'afternoonmaxseats', 'afternoonseats', 'pmcapacity', 'pmslots', 'pmseats']);
       const priceIdx = findColumnIndex(headers, ['price', 'cost', 'fee', 'charge']);
-      const imageIdx = findColumnIndex(headers, ['image', 'photo', 'url', 'pic']);
+      const imageIdx = findColumnIndex(headers, ['workshopimage', 'image', 'photo', 'url', 'pic']);
       
       const getIndexVal = (idx: number, rowArr: string[], fallback: string): string => {
         return idx !== -1 && idx < rowArr.length ? rowArr[idx] : fallback;
@@ -304,6 +386,7 @@ export async function fetchWorkshops(settings: StudioSettings = getStudioSetting
         const row = rows[i];
         if (row.length < 2) continue; // Skip empty rows
         
+        const id = idIdx !== -1 ? getIndexVal(idIdx, row, `sheet-${i}`).trim() || `sheet-${i}` : `sheet-${i}`;
         const title = getIndexVal(titleIdx, row, `Pottery Workshop #${i}`);
         const description = getIndexVal(descIdx, row, 'Premium hands-on clay crafting session at our boutique studio in Mangalore.');
         const date = getIndexVal(dateIdx, row, 'TBA');
@@ -314,10 +397,16 @@ export async function fetchWorkshops(settings: StudioSettings = getStudioSetting
         const maxSeatsStr = getIndexVal(maxSeatsIdx, row, '8').replace(/[^0-9]/g, '');
         const maxSeats = Math.max(1, parseInt(maxSeatsStr, 10) || 8);
         
+        const morningMaxSeatsStr = morningMaxSeatsIdx !== -1 ? getIndexVal(morningMaxSeatsIdx, row, '').replace(/[^0-9]/g, '') : '';
+        const morningMaxSeats = morningMaxSeatsStr ? Math.max(1, parseInt(morningMaxSeatsStr, 10)) : maxSeats;
+        
+        const afternoonMaxSeatsStr = afternoonMaxSeatsIdx !== -1 ? getIndexVal(afternoonMaxSeatsIdx, row, '').replace(/[^0-9]/g, '') : '';
+        const afternoonMaxSeats = afternoonMaxSeatsStr ? Math.max(1, parseInt(afternoonMaxSeatsStr, 10)) : maxSeats;
+        
         const priceStr = getIndexVal(priceIdx, row, '1500').replace(/[^0-9.]/g, '');
         const price = Math.max(0, parseFloat(priceStr) || 1500);
         
-        let image = getIndexVal(imageIdx, row, '').trim();
+        let image = normalizeImageUrl(getIndexVal(imageIdx, row, '').trim());
         
         // Apply manual code-level override if mapped
         if (title && MANUAL_IMAGE_OVERRIDES[title.trim()]) {
@@ -347,13 +436,17 @@ export async function fetchWorkshops(settings: StudioSettings = getStudioSetting
         }
         
         rawWorkshops.push({
-          id: `sheet-${i}`,
+          id,
           title,
           description,
           date,
           morningSlot,
           afternoonSlot,
           maxSeats,
+          morningMaxSeats,
+          afternoonMaxSeats,
+          morningAvailableSeats: morningMaxSeats,
+          afternoonAvailableSeats: afternoonMaxSeats,
           availableSeats: maxSeats, // starts as maxSeats, updated below with active bookings
           price,
           image
@@ -372,19 +465,84 @@ export async function fetchWorkshops(settings: StudioSettings = getStudioSetting
     rawWorkshops = rawWorkshops.map(ws => {
       // Find matching bookings
       const matches = bookings.filter(b => {
-        const idMatches = b.workshopId === ws.id;
+        // Waitlisted and Cancelled reservations do NOT subtract from wheel capacity (case-insensitive)
+        const statusClean = (b.status || '').trim().toLowerCase();
+        const isCountable = statusClean !== 'cancelled' && statusClean !== 'waitlist' && statusClean !== 'waitlisted';
+        if (!isCountable) return false;
+
+        const idMatches = !!(b.workshopId && ws.id && b.workshopId.trim().toLowerCase() === ws.id.trim().toLowerCase());
+
+        // Match by title AND date if both are available, or fallback to title if date is missing/empty (for backwards compatibility)
         const titleMatches = b.workshopTitle?.trim().toLowerCase() === ws.title.trim().toLowerCase();
         
-        // Waitlisted and Cancelled reservations do NOT subtract from wheel capacity
-        const isCountable = b.status !== 'cancelled' && b.status !== 'waitlist' && b.status !== 'waitlisted';
-        return (idMatches || titleMatches) && isCountable;
+        const bDate = normalizeDate(b.workshopDate);
+        const wsDate = normalizeDate(ws.date);
+        const dateMatches = bDate && wsDate ? bDate === wsDate : true;
+
+        const titleAndDateMatches = titleMatches && dateMatches;
+
+        return idMatches || titleAndDateMatches;
       });
       
-      const bookedSeats = matches.length;
-      const availableSeats = Math.max(0, ws.maxSeats - bookedSeats);
-      
+      // Separate matching bookings by slot robustly
+      const morningBookings = matches.filter(b => {
+        const bSlot = (b.slot || '').trim().toLowerCase();
+        const bSlotTime = (b.slotTime || '').trim().toLowerCase();
+        const wsMorningTime = (ws.morningSlot || '').trim().toLowerCase();
+        
+        return bSlot === 'morning' || 
+               bSlot === 'morning slot' || 
+               bSlot === 'am' || 
+               bSlot === 'slot1' || 
+               bSlot === 'slot 1' ||
+               bSlot.startsWith('morning') ||
+               bSlot.startsWith('am') ||
+               (bSlotTime && wsMorningTime && bSlotTime === wsMorningTime);
+      });
+
+      const afternoonBookings = matches.filter(b => {
+        const bSlot = (b.slot || '').trim().toLowerCase();
+        const bSlotTime = (b.slotTime || '').trim().toLowerCase();
+        const wsAfternoonTime = (ws.afternoonSlot || '').trim().toLowerCase();
+        
+        return bSlot === 'afternoon' || 
+               bSlot === 'afternoon slot' || 
+               bSlot === 'pm' || 
+               bSlot === 'slot2' || 
+               bSlot === 'slot 2' ||
+               bSlot.startsWith('afternoon') ||
+               bSlot.startsWith('pm') ||
+               (bSlotTime && wsAfternoonTime && bSlotTime === wsAfternoonTime);
+      });
+
+      // Get separate capacities (fallback to overall maxSeats)
+      const mMax = ws.morningMaxSeats ?? ws.maxSeats;
+      const aMax = ws.afternoonMaxSeats ?? ws.maxSeats;
+
+      // Check which slots are active (Not Available means deactivated)
+      const isMorningActive = ws.morningSlot && ws.morningSlot.trim().toLowerCase() !== 'not available';
+      const isAfternoonActive = ws.afternoonSlot && ws.afternoonSlot.trim().toLowerCase() !== 'not available';
+
+      // Compute available seats per active slot
+      const morningAvailableSeats = isMorningActive ? Math.max(0, mMax - morningBookings.length) : 0;
+      const afternoonAvailableSeats = isAfternoonActive ? Math.max(0, aMax - afternoonBookings.length) : 0;
+
+      // Combined available seats: standard sum of available spots in active sessions
+      let availableSeats = 0;
+      if (isMorningActive) availableSeats += morningAvailableSeats;
+      if (isAfternoonActive) availableSeats += afternoonAvailableSeats;
+
+      // If neither slot is technically active, fallback to old behavior
+      if (!isMorningActive && !isAfternoonActive) {
+        availableSeats = Math.max(0, ws.maxSeats - matches.length);
+      }
+
       return {
         ...ws,
+        morningMaxSeats: mMax,
+        afternoonMaxSeats: aMax,
+        morningAvailableSeats,
+        afternoonAvailableSeats,
         availableSeats
       };
     });
@@ -399,7 +557,8 @@ export async function fetchWorkshops(settings: StudioSettings = getStudioSetting
   return rawWorkshops.filter(ws => {
     if (ws.date && ws.date !== 'TBA') {
       try {
-        const workshopDate = new Date(ws.date);
+        const normDateStr = normalizeDate(ws.date);
+        const workshopDate = new Date(normDateStr);
         if (!isNaN(workshopDate.getTime()) && workshopDate < today) {
           return false; // Hide past workshop
         }
@@ -422,10 +581,19 @@ export async function submitBooking(
   const { price, date, status, ...bookingPayload } = booking;
   const bookingStatus = status || 'pending';
   
+  // Establish explicit insertion order matching the spreadsheet columns list precisely
   const fullBooking: Booking = {
-    ...bookingPayload,
     id: bookingId,
-    timestamp,
+    workshopId: bookingPayload.workshopId || '',
+    workshopTitle: bookingPayload.workshopTitle || '',
+    workshopDate: bookingPayload.workshopDate || date || '',
+    slot: bookingPayload.slot || 'morning',
+    slotTime: bookingPayload.slotTime || '',
+    userName: bookingPayload.userName || '',
+    userPhone: bookingPayload.userPhone || '',
+    userEmail: bookingPayload.userEmail || '',
+    timestamp: timestamp,
+    price: booking.price,
     status: bookingStatus
   };
   
@@ -469,4 +637,12 @@ export async function submitBooking(
     success: true,
     message: whatsappUrl
   };
+}
+
+export function clearLocalBookings(): void {
+  try {
+    localStorage.removeItem('clay_craft_local_bookings');
+  } catch (e) {
+    console.warn('Failed to clear local bookings', e);
+  }
 }

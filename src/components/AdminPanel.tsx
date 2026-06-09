@@ -6,7 +6,7 @@
 import { useState, useEffect } from 'react';
 import { X, Copy, Check, Settings, Info, CloudLightning, ShieldAlert, Sparkles, Database, FileSpreadsheet, Play } from 'lucide-react';
 import { StudioSettings, Workshop, Booking } from '../types';
-import { fetchWorkshops } from '../utils/googleSheets';
+import { fetchWorkshops, clearLocalBookings } from '../utils/googleSheets';
 
 interface AdminPanelProps {
   isOpen: boolean;
@@ -24,6 +24,7 @@ export default function AdminPanel({ isOpen, onClose, onSaveSettings, currentSet
   
   const [copiedHeaders, setCopiedHeaders] = useState(false);
   const [copiedScript, setCopiedScript] = useState(false);
+  const [clearedLocal, setClearedLocal] = useState(false);
 
   useEffect(() => {
     setSheetCsvUrl(currentSettings.sheetCsvUrl);
@@ -61,25 +62,27 @@ export default function AdminPanel({ isOpen, onClose, onSaveSettings, currentSet
     var bookings = [];
     
     for (var i = 1; i < data.length; i++) {
-      var row = data[i];
-      var booking = {};
-      for (var j = 0; j < headers.length; j++) {
-        var header = headers[j].toString().toLowerCase().replace(/[\\s_\\-:]/g, '');
-        var key = header;
-        if (header === 'bookingid' || header === 'id') key = 'id';
-        else if (header === 'workshopid') key = 'workshopId';
-        else if (header === 'workshoptitle' || header === 'title') key = 'workshopTitle';
-        else if (header === 'timeslot' || header === 'slottime') key = 'slotTime';
-        else if (header === 'username' || header === 'name') key = 'userName';
-        else if (header === 'userphone' || header === 'phone') key = 'userPhone';
-        else if (header === 'useremail' || header === 'email') key = 'userEmail';
-        else if (header === 'status') key = 'status';
-        else if (header === 'timestamp') key = 'timestamp';
-        else if (header === 'price') key = 'price';
-        
-        booking[key] = row[j];
-      }
-      bookings.push(booking);
+       var row = data[i];
+       var booking = {};
+       for (var j = 0; j < headers.length; j++) {
+         if (!headers[j]) continue;
+         var header = headers[j].toString().toLowerCase().replace(/[\\s_\\-:]/g, '');
+         var key = header;
+         if (header === 'bookingid' || header === 'id') key = 'id';
+         else if (header === 'workshopid') key = 'workshopId';
+         else if (header === 'workshoptitle' || header === 'title') key = 'workshopTitle';
+         else if (header === 'workshopdate' || header === 'date') key = 'workshopDate';
+         else if (header === 'timeslot' || header === 'slottime') key = 'slotTime';
+         else if (header === 'username' || header === 'name') key = 'userName';
+         else if (header === 'userphone' || header === 'phone') key = 'userPhone';
+         else if (header === 'useremail' || header === 'email') key = 'userEmail';
+         else if (header === 'status') key = 'status';
+         else if (header === 'timestamp') key = 'timestamp';
+         else if (header === 'price') key = 'price';
+         
+         booking[key] = row[j];
+       }
+       bookings.push(booking);
     }
     
     return ContentService.createTextOutput(JSON.stringify(bookings))
@@ -99,7 +102,7 @@ function doPost(e) {
     
     // Set headers if it is a fresh blank sheet page
     if (sheet.getLastRow() === 0) {
-      sheet.appendRow(["Booking ID", "Workshop ID", "Workshop Title", "Slot", "Time Slot", "Name", "Phone", "Email", "Timestamp", "Price", "Status"]);
+      sheet.appendRow(["Booking ID", "Workshop ID", "Workshop Title", "Workshop Date", "Slot", "Time Slot", "Name", "Phone", "Email", "Timestamp", "Price", "Status"]);
     }
     
     var data = JSON.parse(e.postData.contents);
@@ -107,6 +110,7 @@ function doPost(e) {
       data.id || "",
       data.workshopId || "",
       data.workshopTitle || "",
+      data.workshopDate || "",
       data.slot || "",
       data.slotTime || "",
       data.userName || "",
@@ -131,6 +135,15 @@ function doPost(e) {
     navigator.clipboard.writeText(appsScriptCode);
     setCopiedScript(true);
     setTimeout(() => setCopiedScript(false), 2000);
+  };
+
+  const handleClearLocal = () => {
+    clearLocalBookings();
+    setClearedLocal(true);
+    setTimeout(() => {
+      setClearedLocal(false);
+      window.location.reload();
+    }, 1500);
   };
 
   const handleTestAndSave = async () => {
@@ -283,6 +296,38 @@ function doPost(e) {
                   </>
                 )}
               </button>
+
+              {/* Expandable/Informational Gallery Image Upload Guide */}
+              <div className="mt-3.5 bg-brand-sand/60 border border-brand-clay/15 rounded-xl p-4 space-y-2.5">
+                <span className="text-[11px] font-bold text-brand-earth flex items-center gap-1.5">
+                  📸 Quick Guide: How to use images from your device gallery
+                </span>
+                <p className="font-sans text-brand-earth/80 text-[11px] leading-relaxed">
+                  Your website reads images as safe web address URLs. To use any photo stored in your local computer or phone gallery, you just need to upload it online once to get a web link. Here are the 2 easiest free options:
+                </p>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 pt-1">
+                  <div className="bg-white/65 p-3 rounded-lg border border-brand-clay/10 space-y-1">
+                    <span className="font-bold text-[10px] text-brand-terracotta uppercase tracking-wider block">Option A: Via Postimages (Simplest)</span>
+                    <ol className="list-decimal list-inside text-brand-earth/75 text-[10.5px] space-y-0.5">
+                      <li>Go to <a href="https://postimages.org/" target="_blank" rel="noopener noreferrer" className="text-brand-terracotta underline font-semibold hover:text-brand-earth font-mono">postimages.org</a></li>
+                      <li>Upload your gallery image.</li>
+                      <li>Copy the <strong className="text-brand-earth">Direct Link</strong> (the one ending in <code>.jpg</code> or <code>.png</code>).</li>
+                      <li>Paste it into your sheet's <strong className="text-brand-earth">Workshop Image</strong> column!</li>
+                    </ol>
+                  </div>
+
+                  <div className="bg-white/65 p-3 rounded-lg border border-brand-clay/10 space-y-1">
+                    <span className="font-bold text-[10px] text-brand-terracotta uppercase tracking-wider block">Option B: Via Google Drive (Auto-Cleaned)</span>
+                    <ol className="list-decimal list-inside text-brand-earth/75 text-[10.5px] space-y-0.5">
+                      <li>Upload the image file in your Google Drive.</li>
+                      <li>Right-click, select <strong className="text-brand-earth">Share</strong>, and set general access to <strong className="text-brand-earth">"Anyone with the link can view"</strong>.</li>
+                      <li>Copy the sharing link, and paste it directly into your sheet's image column.</li>
+                      <li>Our app automatically transforms Drive links for live high-speed display!</li>
+                    </ol>
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* STEP 2 */}
@@ -434,6 +479,26 @@ function doPost(e) {
                     <br /><br />
                     Local storage records are strictly ignored during seat arithmetic. Deleting or editing rows in your Google Sheet's <em>Bookings</em> sheet tab will immediately adjust wheel slot counts on the visitor website once updated.
                   </div>
+                </div>
+                
+                <div className="pt-2.5 border-t border-emerald-200/40 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={handleClearLocal}
+                    disabled={clearedLocal}
+                    className="flex items-center gap-1.5 text-xs text-brand-terracotta font-semibold hover:text-brand-earth transition-colors border border-brand-clay/20 bg-brand-clay/5 px-3.5 py-1.5 rounded cursor-pointer"
+                  >
+                    {clearedLocal ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-600 animate-bounce" />
+                        <span className="text-emerald-700">Test Bookings Cleared!</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Clear Simulator Test Bookings</span>
+                      </>
+                    )}
+                  </button>
                 </div>
               </div>
             </div>

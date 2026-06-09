@@ -74,6 +74,12 @@ export default function BookingModal({ workshop, onClose, onSubmitBooking }: Boo
   const isMorningAvailable = workshop.morningSlot && !isNotAvailable(workshop.morningSlot);
   const isAfternoonAvailable = workshop.afternoonSlot && !isNotAvailable(workshop.afternoonSlot);
 
+  const isSelectedSlotFull = selectedSlot === 'none'
+    ? workshop.availableSeats <= 0
+    : (selectedSlot === 'morning' 
+       ? (workshop.morningAvailableSeats ?? 0) <= 0 
+       : (workshop.afternoonAvailableSeats ?? 0) <= 0);
+
   // Automatically select the only available slot if only one exists
   React.useEffect(() => {
     if (isMorningAvailable && !isAfternoonAvailable) {
@@ -114,6 +120,7 @@ export default function BookingModal({ workshop, onClose, onSubmitBooking }: Boo
       const payload = {
         workshopId: workshop.id,
         workshopTitle: workshop.title,
+        workshopDate: workshop.date,
         slot: selectedSlot as 'morning' | 'afternoon',
         slotTime: slotTime,
         userName: name,
@@ -121,7 +128,7 @@ export default function BookingModal({ workshop, onClose, onSubmitBooking }: Boo
         userEmail: email,
         price: workshop.price,
         date: workshop.date,
-        status: (workshop.availableSeats <= 0 ? 'waitlist' : 'pending') as 'pending' | 'waitlist'
+        status: (isSelectedSlotFull ? 'waitlist' : 'pending') as 'pending' | 'waitlist'
       };
 
       const result = await onSubmitBooking(payload);
@@ -183,8 +190,8 @@ export default function BookingModal({ workshop, onClose, onSubmitBooking }: Boo
             </span>
             <h3 className="font-serif text-lg text-brand-earth font-bold mt-0.5">
               {bookingResult 
-                ? (workshop.availableSeats <= 0 ? 'Waitlist Registration Saved!' : 'Booking Confirmed!') 
-                : (workshop.availableSeats <= 0 ? 'Join the Guest Waitlist' : 'Book Your Session')}
+                ? (isSelectedSlotFull ? 'Waitlist Registration Saved!' : 'Booking Confirmed!') 
+                : (isSelectedSlotFull ? 'Join the Guest Waitlist' : 'Book Your Session')}
             </h3>
           </div>
           
@@ -272,13 +279,13 @@ export default function BookingModal({ workshop, onClose, onSubmitBooking }: Boo
             /* ================= BOOKING FORM SCREEN ================= */
             <form onSubmit={handleSubmit} className="space-y-6">
               
-              {workshop.availableSeats <= 0 && (
+              {isSelectedSlotFull && (
                 <div id="fully-booked-modal-warning" className="p-4 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl space-y-1 text-xs">
                   <span className="font-bold flex items-center gap-1.5 uppercase tracking-wider font-mono">
-                    ⚠️ This workshop is fully booked.
+                    ⚠️ {selectedSlot === 'none' ? 'This workshop is fully booked.' : 'This session slot is fully booked.'}
                   </span>
                   <p className="font-sans">
-                    All of our standard potter's wheels are currently reserved. You may submit the form below to join our priority waitlist. We will contact you immediately if a spot opens up!
+                    All of our standard potter's wheels for this slot are currently reserved. You may submit the form below to join our priority waitlist. We will contact you immediately if a spot opens up!
                   </p>
                 </div>
               )}
@@ -325,9 +332,20 @@ export default function BookingModal({ workshop, onClose, onSubmitBooking }: Boo
                       <Clock className="w-3 h-3 text-emerald-600" />
                       <span>Morning Slot</span>
                     </span>
-                    <span className="text-[10px] text-brand-earth/60 font-medium leading-none truncate">
-                      {isMorningAvailable ? workshop.morningSlot : 'Not Available'}
-                    </span>
+                    <div className="flex items-center justify-between w-full">
+                      <span className="text-[10px] text-brand-earth/60 font-medium leading-none truncate max-w-[60%]">
+                        {isMorningAvailable ? workshop.morningSlot : 'Not Available'}
+                      </span>
+                      {isMorningAvailable && (
+                        <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded shrink-0 ${
+                          (workshop.morningAvailableSeats ?? 0) <= 0 
+                            ? 'text-amber-800 bg-amber-100/50' 
+                            : 'text-emerald-800 bg-emerald-100/50'
+                        }`}>
+                          {(workshop.morningAvailableSeats ?? 0) <= 0 ? 'Waitlist' : `${workshop.morningAvailableSeats} spots`}
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   {/* Afternoon Option */}
@@ -335,7 +353,7 @@ export default function BookingModal({ workshop, onClose, onSubmitBooking }: Boo
                     onClick={() => isAfternoonAvailable && setSelectedSlot('afternoon')}
                     className={`p-4 rounded-lg border-2 text-left cursor-pointer transition-all flex flex-col justify-between h-20 ${
                       !isAfternoonAvailable
-                        ? 'bg-brand-earth/2 border-brand-earth/5 opacity-40 cursor-not-allowed'
+                        ? 'bg-brand-earth/2 border-brand-earth/4 opacity-40 cursor-not-allowed'
                         : selectedSlot === 'afternoon'
                         ? 'border-brand-terracotta bg-brand-terracotta/5'
                         : 'border-brand-earth/10 bg-white hover:border-brand-earth/30'
@@ -345,9 +363,20 @@ export default function BookingModal({ workshop, onClose, onSubmitBooking }: Boo
                       <Clock className="w-3 h-3 text-brand-clay" />
                       <span>Afternoon Slot</span>
                     </span>
-                    <span className="text-[10px] text-brand-earth/60 font-medium leading-none truncate">
-                      {isAfternoonAvailable ? workshop.afternoonSlot : 'Not Available'}
-                    </span>
+                    <div className="flex items-center justify-between w-full">
+                      <span className="text-[10px] text-brand-earth/60 font-medium leading-none truncate max-w-[60%]">
+                        {isAfternoonAvailable ? workshop.afternoonSlot : 'Not Available'}
+                      </span>
+                      {isAfternoonAvailable && (
+                        <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded shrink-0 ${
+                          (workshop.afternoonAvailableSeats ?? 0) <= 0 
+                            ? 'text-amber-800 bg-amber-100/50' 
+                            : 'text-emerald-800 bg-emerald-100/50'
+                        }`}>
+                          {(workshop.afternoonAvailableSeats ?? 0) <= 0 ? 'Waitlist' : `${workshop.afternoonAvailableSeats} spots`}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -427,12 +456,12 @@ export default function BookingModal({ workshop, onClose, onSubmitBooking }: Boo
                 {isSubmitting ? (
                   <>
                     <span className="w-4 h-4 rounded-full border-2 border-white/25 border-t-white animate-spin block" />
-                    <span>{workshop.availableSeats <= 0 ? 'Adding to Waitlist...' : 'Reserving Wheel Spot...'}</span>
+                    <span>{isSelectedSlotFull ? 'Adding to Waitlist...' : 'Reserving Wheel Spot...'}</span>
                   </>
                 ) : (
                   <>
                     <Sparkles className="w-3.5 h-3.5" />
-                    <span>{workshop.availableSeats <= 0 ? 'Join Waitlist & Get Message' : 'Confirm Booking & Get Message'}</span>
+                    <span>{isSelectedSlotFull ? 'Join Waitlist & Get Message' : 'Confirm Booking & Get Message'}</span>
                   </>
                 )}
               </button>

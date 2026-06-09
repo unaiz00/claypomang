@@ -83,8 +83,36 @@ export default function App() {
     // so it visualizes instantly and prevents over-booking before any refresh
     if (response.success) {
       setWorkshops(prev => prev.map(w => {
-        if (w.id === payload.workshopId && w.availableSeats > 0) {
-          return { ...w, availableSeats: w.availableSeats - 1 };
+        if (w.id === payload.workshopId) {
+          const isMorning = payload.slot === 'morning';
+          const isMorningActive = w.morningSlot && w.morningSlot.trim().toLowerCase() !== 'not available';
+          const isAfternoonActive = w.afternoonSlot && w.afternoonSlot.trim().toLowerCase() !== 'not available';
+
+          const currentM = w.morningAvailableSeats ?? (isMorningActive ? w.maxSeats : 0);
+          const currentA = w.afternoonAvailableSeats ?? (isAfternoonActive ? w.maxSeats : 0);
+
+          let newM = currentM;
+          let newA = currentA;
+
+          if (isMorning) {
+            newM = Math.max(0, currentM - 1);
+          } else {
+            newA = Math.max(0, currentA - 1);
+          }
+
+          let newTotal = 0;
+          if (isMorningActive) newTotal += newM;
+          if (isAfternoonActive) newTotal += newA;
+          if (!isMorningActive && !isAfternoonActive) {
+            newTotal = Math.max(0, w.availableSeats - 1);
+          }
+
+          return {
+            ...w,
+            morningAvailableSeats: newM,
+            afternoonAvailableSeats: newA,
+            availableSeats: newTotal
+          };
         }
         return w;
       }));

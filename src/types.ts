@@ -11,6 +11,10 @@ export interface Workshop {
   morningSlot: string; // e.g., "10:00 AM - 12:30 PM" or "Not Available"
   afternoonSlot: string; // e.g., "2:30 PM - 5:00 PM" or "Not Available"
   maxSeats: number;
+  morningMaxSeats?: number;
+  afternoonMaxSeats?: number;
+  morningAvailableSeats?: number;
+  afternoonAvailableSeats?: number;
   availableSeats: number;
   price: number; // in INR (₹)
   image: string; // URL to the image
@@ -21,6 +25,7 @@ export interface Booking {
   id: string;
   workshopId: string;
   workshopTitle: string;
+  workshopDate: string;
   slot: 'morning' | 'afternoon';
   slotTime: string;
   userName: string;
@@ -28,6 +33,7 @@ export interface Booking {
   userEmail: string;
   timestamp: string;
   status: 'pending' | 'confirmed' | 'cancelled' | 'waitlist' | 'waitlisted';
+  price?: number;
 }
 
 export interface StudioSettings {
