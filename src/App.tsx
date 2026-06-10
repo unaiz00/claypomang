@@ -117,9 +117,11 @@ export default function App() {
         return w;
       }));
       
-      // Also fetch updated data in the background if connected to external endpoint
+      // Also fetch updated data in the background if connected to external endpoint with a slight delay for sheet commit
       if (settings.appsScriptUrl || settings.sheetCsvUrl) {
-        loadWorkshops(settings);
+        setTimeout(() => {
+          loadWorkshops(settings);
+        }, 2500);
       }
     }
     

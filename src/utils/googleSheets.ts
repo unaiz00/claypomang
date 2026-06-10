@@ -85,7 +85,109 @@ export function normalizeDate(dateStr: string | null | undefined): string {
   if (!dateStr) return '';
   const clean = dateStr.toString().trim();
   
-  // Match standard ISO or SQL date format prefix like "YYYY-MM-DD"
+  // 1. Convert month name strings (e.g. "10-Jun-2026" or "10 June" or "June 10") beforehand
+  // to avoid standard JS parsers making them browser-local and causing crossing day offsets.
+  const monthsMap: Record<string, string> = {
+    jan: '01', january: '01',
+    feb: '02', february: '02',
+    mar: '03', march: '03',
+    apr: '04', april: '04',
+    may: '05',
+    jun: '06', june: '06',
+    jul: '07', july: '07',
+    aug: '08', august: '08',
+    sep: '09', september: '09', sept: '09',
+    oct: '10', october: '10',
+    nov: '11', november: '11',
+    dec: '12', december: '12'
+  };
+
+  const cleanLower = clean.toLowerCase();
+  let hasMonthName = false;
+  let matchedMonthKey = '';
+  for (const mName of Object.keys(monthsMap)) {
+    const rx = new RegExp(`(?:[^a-z]|^)${mName}(?:[^a-z]|$)`);
+    if (rx.test(cleanLower)) {
+      matchedMonthKey = mName;
+      hasMonthName = true;
+      break;
+    }
+  }
+
+  if (hasMonthName) {
+    const monthNumStr = monthsMap[matchedMonthKey];
+    const numbers = cleanLower.match(/\d+/g);
+    if (numbers && numbers.length >= 2) {
+      let dayVal = '';
+      let yearVal = '';
+      const first = numbers[0];
+      const second = numbers[1];
+      
+      if (first.length === 4) {
+        yearVal = first;
+        dayVal = second;
+      } else if (second.length === 4) {
+        yearVal = second;
+        dayVal = first;
+      } else if (second.length === 2) {
+        yearVal = '20' + second;
+        dayVal = first;
+      } else {
+        dayVal = first;
+        yearVal = new Date().getFullYear().toString();
+      }
+      
+      return `${yearVal}-${monthNumStr}-${dayVal.padStart(2, '0')}`;
+    }
+  }
+
+  // 2. Check for standard Indian/UK date-only formats: DD-MM-YYYY, DD/MM/YYYY, DD.MM.YYYY
+  const dmyMatch = clean.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$/);
+  if (dmyMatch) {
+    const dStr = dmyMatch[1];
+    const mStr = dmyMatch[2];
+    const yStr = dmyMatch[3];
+    
+    const dVal = parseInt(dStr, 10);
+    const mVal = parseInt(mStr, 10);
+    
+    let day = dStr;
+    let month = mStr;
+    
+    if (dVal > 12 && mVal <= 12) {
+      day = dStr;
+      month = mStr;
+    } else if (mVal > 12 && dVal <= 12) {
+      day = mStr;
+      month = dStr;
+    }
+    
+    return `${yStr}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  }
+
+  // 3. Check for standard YYYY-MM-DD or YYYY/MM/DD date-only formats
+  const ymdMatch = clean.match(/^(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})$/);
+  if (ymdMatch) {
+    return `${ymdMatch[1]}-${ymdMatch[2].padStart(2, '0')}-${ymdMatch[3].padStart(2, '0')}`;
+  }
+  
+  // 4. Fallback to standard JS Date parsing but enforce UTC to Asia/Kolkata (+05:30) 
+  // timezone shift to make results 100% browser-location agnostic!
+  try {
+    const parsedDate = new Date(clean);
+    if (!isNaN(parsedDate.getTime())) {
+      const kolkataOffsetMs = 5.5 * 60 * 60 * 1000;
+      const kolkataTime = new Date(parsedDate.getTime() + kolkataOffsetMs);
+      const y = kolkataTime.getUTCFullYear();
+      const m = String(kolkataTime.getUTCMonth() + 1).padStart(2, '0');
+      const d = String(kolkataTime.getUTCDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+  } catch (e) {
+    // ignore
+  }
+
+  // 5. Backup split patterns
   if (clean.includes('T')) {
     const parted = clean.split('T')[0];
     if (/^\d{4}-\d{2}-\d{2}$/.test(parted)) {
@@ -98,19 +200,6 @@ export function normalizeDate(dateStr: string | null | undefined): string {
     if (/^\d{4}-\d{2}-\d{2}$/.test(parted)) {
       return parted;
     }
-  }
-
-  // Parse standard Date formats (handles different locale string options perfectly)
-  try {
-    const parsedDate = new Date(clean);
-    if (!isNaN(parsedDate.getTime())) {
-      const yyyy = parsedDate.getFullYear();
-      const mm = String(parsedDate.getMonth() + 1).padStart(2, '0');
-      const dd = String(parsedDate.getDate()).padStart(2, '0');
-      return `${yyyy}-${mm}-${dd}`;
-    }
-  } catch (e) {
-    // Return original if parsing failed
   }
 
   return clean;
@@ -489,35 +578,69 @@ export async function fetchWorkshops(settings: StudioSettings = getStudioSetting
         return idMatches || titleAndDateMatches;
       });
       
-      // Separate matching bookings by slot robustly
+      // Separate matching bookings by slot robustly, verifying raw attributes returned from sheet
       const morningBookings = matches.filter(b => {
-        const bSlot = (b.slot || '').trim().toLowerCase();
+        const slotRaw = b.slot || (b as any).selectedslot || (b as any).workshopslot || (b as any).chosenslot || (b as any).selectedSlot || (b as any).workshopSlot || (b as any).chosenSlot || '';
+        const bSlot = slotRaw.toString().trim().toLowerCase();
+        
         const bSlotTime = (b.slotTime || '').trim().toLowerCase();
         const wsMorningTime = (ws.morningSlot || '').trim().toLowerCase();
         
-        return bSlot === 'morning' || 
+        const isMorningBySlot = bSlot === 'morning' || 
                bSlot === 'morning slot' || 
                bSlot === 'am' || 
                bSlot === 'slot1' || 
                bSlot === 'slot 1' ||
                bSlot.startsWith('morning') ||
                bSlot.startsWith('am') ||
-               (bSlotTime && wsMorningTime && bSlotTime === wsMorningTime);
+               bSlot.includes('10:') ||
+               bSlot.includes('11:') ||
+               bSlot.includes('09:') ||
+               bSlot.includes('08:') ||
+               bSlot.includes('9:') ||
+               bSlot.includes('8:');
+
+        const isMorningByTime = bSlotTime && wsMorningTime && (
+          bSlotTime === wsMorningTime || 
+          bSlotTime.includes(wsMorningTime) || 
+          wsMorningTime.includes(bSlotTime)
+        );
+
+        return isMorningBySlot || isMorningByTime;
       });
 
       const afternoonBookings = matches.filter(b => {
-        const bSlot = (b.slot || '').trim().toLowerCase();
+        const slotRaw = b.slot || (b as any).selectedslot || (b as any).workshopslot || (b as any).chosenslot || (b as any).selectedSlot || (b as any).workshopSlot || (b as any).chosenSlot || '';
+        const bSlot = slotRaw.toString().trim().toLowerCase();
+        
         const bSlotTime = (b.slotTime || '').trim().toLowerCase();
         const wsAfternoonTime = (ws.afternoonSlot || '').trim().toLowerCase();
         
-        return bSlot === 'afternoon' || 
+        const isAfternoonBySlot = bSlot === 'afternoon' || 
                bSlot === 'afternoon slot' || 
                bSlot === 'pm' || 
                bSlot === 'slot2' || 
                bSlot === 'slot 2' ||
                bSlot.startsWith('afternoon') ||
                bSlot.startsWith('pm') ||
-               (bSlotTime && wsAfternoonTime && bSlotTime === wsAfternoonTime);
+               bSlot.includes('2:') ||
+               bSlot.includes('3:') ||
+               bSlot.includes('4:') ||
+               bSlot.includes('5:') ||
+               bSlot.includes('14:') ||
+               bSlot.includes('15:') ||
+               bSlot.includes('16:') ||
+               bSlot.includes('17:') ||
+               bSlot.includes('12:') ||
+               bSlot.includes('13:');
+
+        const isAfternoonByTime = bSlotTime && wsAfternoonTime && (
+          bSlotTime === wsAfternoonTime || 
+          bSlotTime.includes(wsAfternoonTime) || 
+          wsAfternoonTime.includes(bSlotTime)
+        );
+
+        return isAfternoonBySlot || isAfternoonByTime;
       });
 
       // Get separate capacities (fallback to overall maxSeats)
@@ -540,6 +663,18 @@ export async function fetchWorkshops(settings: StudioSettings = getStudioSetting
       // If neither slot is technically active, fallback to old behavior
       if (!isMorningActive && !isAfternoonActive) {
         availableSeats = Math.max(0, ws.maxSeats - matches.length);
+      }
+
+      // Log capacity calculations details for workshop wk001 specifically as requested
+      if (ws.id === 'wk001' || ws.id.trim() === 'wk001') {
+        console.log('%c--- [Capacity Calculation Log for wk001] ---', 'color: #ea580c; font-weight: bold; font-size: 11px;');
+        console.log(`- Number of bookings returned by Apps Script: ${bookings.length}`);
+        console.log(`- Number of bookings used in capacity calculation for wk001: ${matches.length}`);
+        console.log(`- morningBookings (count: ${morningBookings.length}):`, morningBookings);
+        console.log(`- afternoonBookings (count: ${afternoonBookings.length}):`, afternoonBookings);
+        console.log(`- morningAvailableSeats: ${morningAvailableSeats} (out of max ${mMax})`);
+        console.log(`- afternoonAvailableSeats: ${afternoonAvailableSeats} (out of max ${aMax})`);
+        console.log('-------------------------------------------');
       }
 
       return {

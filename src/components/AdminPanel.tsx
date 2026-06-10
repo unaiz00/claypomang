@@ -47,15 +47,13 @@ export default function AdminPanel({ isOpen, onClose, onSaveSettings, currentSet
     var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Bookings");
     if (!sheet) {
       return ContentService.createTextOutput(JSON.stringify([]))
-        .setMimeType(ContentService.MimeType.JSON)
-        .addHeader("Access-Control-Allow-Origin", "*");
+        .setMimeType(ContentService.MimeType.JSON);
     }
     
     var data = sheet.getDataRange().getValues();
     if (data.length < 2) {
       return ContentService.createTextOutput(JSON.stringify([]))
-        .setMimeType(ContentService.MimeType.JSON)
-        .addHeader("Access-Control-Allow-Origin", "*");
+        .setMimeType(ContentService.MimeType.JSON);
     }
     
     var headers = data[0];
@@ -68,30 +66,44 @@ export default function AdminPanel({ isOpen, onClose, onSaveSettings, currentSet
          if (!headers[j]) continue;
          var header = headers[j].toString().toLowerCase().replace(/[\\s_\\-:]/g, '');
          var key = header;
+         var val = row[j];
          if (header === 'bookingid' || header === 'id') key = 'id';
          else if (header === 'workshopid') key = 'workshopId';
          else if (header === 'workshoptitle' || header === 'title') key = 'workshopTitle';
-         else if (header === 'workshopdate' || header === 'date') key = 'workshopDate';
+         else if (header === 'workshopdate' || header === 'date') {
+           key = 'workshopDate';
+           if (val instanceof Date) {
+             try {
+               val = Utilities.formatDate(val, SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone(), "yyyy-MM-dd");
+             } catch(e){}
+           }
+         }
+         else if (header === 'slot' || header === 'selectedslot' || header === 'workshopslot' || header === 'chosenslot') key = 'slot';
          else if (header === 'timeslot' || header === 'slottime') key = 'slotTime';
          else if (header === 'username' || header === 'name') key = 'userName';
          else if (header === 'userphone' || header === 'phone') key = 'userPhone';
          else if (header === 'useremail' || header === 'email') key = 'userEmail';
          else if (header === 'status') key = 'status';
-         else if (header === 'timestamp') key = 'timestamp';
+         else if (header === 'timestamp') {
+           key = 'timestamp';
+           if (val instanceof Date) {
+             try {
+               val = Utilities.formatDate(val, SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone(), "yyyy-MM-dd HH:mm:ss");
+             } catch(e){}
+           }
+         }
          else if (header === 'price') key = 'price';
          
-         booking[key] = row[j];
+         booking[key] = val;
        }
        bookings.push(booking);
     }
     
     return ContentService.createTextOutput(JSON.stringify(bookings))
-      .setMimeType(ContentService.MimeType.JSON)
-      .addHeader("Access-Control-Allow-Origin", "*");
+      .setMimeType(ContentService.MimeType.JSON);
   } catch (error) {
     return ContentService.createTextOutput(JSON.stringify({ "status": "error", "message": error.toString() }))
-      .setMimeType(ContentService.MimeType.JSON)
-      .addHeader("Access-Control-Allow-Origin", "*");
+      .setMimeType(ContentService.MimeType.JSON);
   }
 }
 
@@ -122,12 +134,10 @@ function doPost(e) {
     ]);
     
     return ContentService.createTextOutput(JSON.stringify({ "status": "success", "bookingId": data.id }))
-      .setMimeType(ContentService.MimeType.JSON)
-      .addHeader("Access-Control-Allow-Origin", "*");
+      .setMimeType(ContentService.MimeType.JSON);
   } catch (error) {
     return ContentService.createTextOutput(JSON.stringify({ "status": "error", "message": error.toString() }))
-      .setMimeType(ContentService.MimeType.JSON)
-      .addHeader("Access-Control-Allow-Origin", "*");
+      .setMimeType(ContentService.MimeType.JSON);
   }
 }`;
 
