@@ -268,6 +268,15 @@ export function parseCSV(csvText: string): string[][] {
 // Helper to normalize column naming
 function findColumnIndex(headers: string[], options: string[]): number {
   const normalizedHeaders = headers.map(h => h.toLowerCase().replace(/[\s_\-:]/g, ''));
+  
+  // 1st pass: Look for an exact match to prevent broad keywords (like 'capacity') from matching specialized ones
+  for (const opt of options) {
+    const normOpt = opt.toLowerCase().replace(/[\s_\-:]/g, '');
+    const idx = normalizedHeaders.findIndex(h => h === normOpt);
+    if (idx !== -1) return idx;
+  }
+  
+  // 2nd pass: Fallback to partial sub-string match
   for (const opt of options) {
     const normOpt = opt.toLowerCase().replace(/[\s_\-:]/g, '');
     const idx = normalizedHeaders.findIndex(h => h.includes(normOpt) || normOpt.includes(h));
@@ -278,22 +287,22 @@ function findColumnIndex(headers: string[], options: string[]): number {
 
 // Fetch bookings from Google Apps Script endpoint and merge with local bookings
 export async function fetchBookings(settings: StudioSettings = getStudioSettings()): Promise<Booking[]> {
-  let localBookings: Booking[] = [];
-  try {
-    const data = localStorage.getItem('clay_craft_local_bookings');
-    if (data) {
-      localBookings = JSON.parse(data);
-    }
-  } catch (e) {
-    console.warn('Failed to parse local bookings', e);
-  }
-
-  // If NO apps script URL is set, return local mock bookings
+  // If NO apps script URL is set, return local mock bookings (Demo/simulation mode)
   if (!settings.appsScriptUrl) {
+    let localBookings: Booking[] = [];
+    try {
+      const data = localStorage.getItem('clay_craft_local_bookings');
+      if (data) {
+        localBookings = JSON.parse(data);
+      }
+    } catch (e) {
+      console.warn('Failed to parse local bookings', e);
+    }
+    console.log('%c[Availability Data Source] Using strictly local device simulated bookings.', 'color: #3b82f6; font-weight: bold;', localBookings);
     return localBookings;
   }
 
-  // If Apps Script URL is set, fetch from the GET endpoint and merge or fallback
+  // If Apps Script URL is set (Live Mode), fetch from the GET endpoint, live sheet serves as sole source of truth
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout for cold starts
@@ -309,20 +318,16 @@ export async function fetchBookings(settings: StudioSettings = getStudioSettings
     }
     const data = await response.json();
     if (Array.isArray(data)) {
-      // Merge GAS bookings and local-only bookings (deduplicating by ID)
-      const mergedBookings = [...data];
-      const remoteIds = new Set(data.map((b: Booking) => b.id));
-      for (const localB of localBookings) {
-        if (!remoteIds.has(localB.id)) {
-          mergedBookings.push(localB);
-        }
-      }
-      return mergedBookings;
+      console.log('%c[Availability Data Source] Successfully connected to Apps Script. Using live spreadsheet bookings as single source of truth.', 'color: #10b981; font-weight: bold;', {
+        appsScriptBookings: data
+      });
+      return data;
     }
-    return localBookings;
+    console.warn('[Availability Data Source] Apps Script response was not an array.', data);
+    return [];
   } catch (error) {
-    console.warn('Failed to fetch bookings from Apps Script. Returning local bookings.', error);
-    return localBookings;
+    console.warn('Failed to fetch bookings from Apps Script. Returning empty array in live mode to prevent stale, device-specific deviations.', error);
+    return [];
   }
 }
 
@@ -608,13 +613,22 @@ export async function submitBooking(
   const encodedMsg = encodeURIComponent(whatsappText);
   const whatsappUrl = `https://wa.me/917907974566?text=${encodedMsg}`;
   
-  // Save locally as mock database
-  try {
-    const existingBookings = JSON.parse(localStorage.getItem('clay_craft_local_bookings') || '[]');
-    existingBookings.push(fullBooking);
-    localStorage.setItem('clay_craft_local_bookings', JSON.stringify(existingBookings));
-  } catch (e) {
-    console.warn('Local mock booking save failed', e);
+  // Save locally as mock database ONLY when in Demo/Simulation Mode
+  if (!settings.appsScriptUrl) {
+    try {
+      const existingBookings = JSON.parse(localStorage.getItem('clay_craft_local_bookings') || '[]');
+      existingBookings.push(fullBooking);
+      localStorage.setItem('clay_craft_local_bookings', JSON.stringify(existingBookings));
+    } catch (e) {
+      console.warn('Local mock booking save failed', e);
+    }
+  } else {
+    // Keep client storage completely clean in live mode to avoid residual stale simulation data
+    try {
+      localStorage.removeItem('clay_craft_local_bookings');
+    } catch (e) {
+      // ignore
+    }
   }
   
   // If Google Apps Script is configured, post booking data securely in background
